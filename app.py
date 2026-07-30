@@ -171,9 +171,17 @@ def api_icon(id_):
 
 @app.route("/api/name/<id_>")
 def api_name(id_):
-    """Names for a (possibly hand-edited) id, so the table can relabel."""
+    """Names + rank for a (possibly hand-edited) id, so the table can
+    relabel and the output set can keep its rank-based ordering."""
     jpn, eng = _names(id_)
-    return jsonify({"jpn_name": jpn, "eng_name": eng, "known": id_ in NAME_INDEX.id_to_name})
+    return jsonify(
+        {
+            "jpn_name": jpn,
+            "eng_name": eng,
+            "rank": INDEX.id_to_rank.get(id_),
+            "known": id_ in NAME_INDEX.id_to_name,
+        }
+    )
 
 
 _TEMPLATE = """
@@ -181,7 +189,7 @@ _TEMPLATE = """
 <html>
 <head>
 <meta charset="utf-8">
-<title>Puni Icons — screenshot to IDs</title>
+<title>NyanYPT</title>
 <style>
   body { font-family: -apple-system, sans-serif; background: #1a1a2e; color: #eee; padding: 24px; max-width: 1200px; margin: 0 auto; }
   h2 { margin-top: 0; }
@@ -216,7 +224,7 @@ _TEMPLATE = """
 </style>
 </head>
 <body>
-  <h2>Puni Icons — screenshot &rarr; character IDs</h2>
+  <h2>Gach Vision NyanYPT</h2>
 
   <label id="drop">
     <input type="file" id="file-input" multiple accept="image/*">
@@ -264,7 +272,7 @@ async function upload(files) {
     const data = await res.json();
     if (!res.ok) { statusEl.textContent = data.error || 'upload failed'; return; }
     batchId = data.batch_id;
-    rows = data.rows.map(r => ({ ...r, included: true, finalId: r.id }));
+    rows = data.rows.map(r => ({ ...r, included: true, finalId: r.id, finalRank: r.rank }));
     statusEl.textContent = '';
     renderTable();
     renderOutput();
@@ -273,9 +281,19 @@ async function upload(files) {
   }
 }
 
+// output ordering: highest rank first, numeric id order within a rank
+const RANK_ORDER = ['UZ++', 'UZ+', 'UZ', 'ZZZ', 'ZZ', 'Z', 'SSS', 'SS', 'S', 'A', 'B', 'C', 'D', 'E'];
+function rankIndex(rank) {
+  const i = RANK_ORDER.indexOf(rank);
+  return i === -1 ? RANK_ORDER.length : i;  // unknown ranks sort last
+}
+
 function outputText() {
-  const ids = [...new Set(rows.filter(r => r.included).map(r => r.finalId))]
-    .sort((a, b) => Number(a) - Number(b));
+  const included = rows.filter(r => r.included);
+  const rankOf = {};
+  included.forEach(r => { rankOf[r.finalId] = r.finalRank; });
+  const ids = [...new Set(included.map(r => r.finalId))].sort((a, b) =>
+    (rankIndex(rankOf[a]) - rankIndex(rankOf[b])) || (Number(a) - Number(b)));
   return '{' + ids.join(', ') + '}';
 }
 
@@ -306,7 +324,14 @@ function renderTable() {
   const tbody = document.getElementById('rows');
   tbody.innerHTML = '';
   document.getElementById('table').style.display = rows.length ? 'table' : 'none';
-  rows.forEach((r, i) => {
+
+  // mismatched (signals-disagree) rows float to the top; stable otherwise
+  // so everything else keeps its original screenshot order.
+  const order = rows.map((_, i) => i).sort((a, b) =>
+    (rows[a].name_agrees === false ? 0 : 1) - (rows[b].name_agrees === false ? 0 : 1));
+
+  order.forEach(i => {
+    const r = rows[i];
     const tr = document.createElement('tr');
     if (!r.included) tr.classList.add('excluded');
     if (r.name_agrees === false) tr.classList.add('disagree');
@@ -351,10 +376,11 @@ function renderTable() {
     r.finalId = inp.value.trim();
     const info = await (await fetch(`/api/name/${encodeURIComponent(r.finalId)}`)).json();
     inp.classList.toggle('unknown', !info.known);
+    r.finalRank = info.rank || r.rank;
     const tr = inp.closest('tr');
     tr.querySelector('.final-icon').src = `/api/icon/${r.finalId}.png`;
     tr.querySelector('.names').innerHTML =
-      `${r.rank}${r.rank_was_guessed ? '?' : ''} &middot; ${info.jpn_name}<br>${info.eng_name}`;
+      `${r.finalRank}${r.rank_was_guessed ? '?' : ''} &middot; ${info.jpn_name}<br>${info.eng_name}`;
     renderOutput();
   }));
 }
