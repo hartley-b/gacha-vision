@@ -1,0 +1,10 @@
+numpy==2.4.6
+opencv-python==5.0.0.93
+pillow==12.3.0
+torch==2.13.0
+torchvision==0.28.0
+open_clip_torch==3.3.0
+matplotlib==3.11.1
+ipykernel==7.3.0
+pytesseract==0.3.13
+flask==3.1.3

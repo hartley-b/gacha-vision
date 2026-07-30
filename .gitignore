@@ -1,0 +1,11 @@
+## mac os junk
+.DS_Store
+
+## env 
+*.venv
+
+## source folders
+*final_sorted
+
+
+## py cache
